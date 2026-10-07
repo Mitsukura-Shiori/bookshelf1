@@ -77,6 +77,30 @@ def delete_book(book_id: int):
         conn.commit()
 
 
+def get_book_by_id(book_id: int):
+    """指定IDの書籍データを1件取得"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM books WHERE id = ?", (book_id,))
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+
+def update_book(book_id: int, title: str, author: str, genre: str, published_date: str, rating: int, memo: str):
+    """書籍情報を更新"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            UPDATE books
+            SET title = ?, author = ?, genre = ?, published_date = ?, rating = ?, memo = ?
+            WHERE id = ?
+            """,
+            (title, author, genre, published_date, rating, memo, book_id),
+        )
+        conn.commit()
+
+
 # アプリケーション初期設定
 st.set_page_config(
     page_title="書籍管理システム",
@@ -93,8 +117,8 @@ st.caption("SQLite3 を利用した書籍データの登録および一覧表示
 # ジャンル候補
 GENRES = ["文学・小説", "ビジネス・経済", "IT・技術書", "自然科学・工学", "趣味・実用", "コミック・雑誌", "その他"]
 
-# タブ切り替え: 書籍一覧 と 書籍登録
-tab_list, tab_add = st.tabs(["📋 書籍データ一覧", "➕ 書籍の新規登録"])
+# タブ切り替え: 書籍一覧、新規登録、編集
+tab_list, tab_add, tab_edit = st.tabs(["📋 書籍データ一覧", "➕ 書籍の新規登録", "✏️ 書籍の編集"])
 
 # ---------------- 書籍一覧タブ ----------------
 with tab_list:
@@ -193,3 +217,76 @@ with tab_add:
                     memo=memo.strip(),
                 )
                 st.success(f"『{title.strip()}』を登録しました！「書籍データ一覧」タブで確認できます。")
+
+# ---------------- 書籍編集タブ ----------------
+with tab_edit:
+    st.subheader("書籍情報の編集")
+    all_books = fetch_books()
+
+    if all_books.empty:
+        st.info("編集可能な書籍がありません。まずは「書籍の新規登録」タブから書籍を追加してください。")
+    else:
+        book_options = {
+            int(row["id"]): f"ID {row['id']}: {row['title']}（著者: {row['author']}）"
+            for _, row in all_books.iterrows()
+        }
+
+        selected_id = st.selectbox(
+            "編集する書籍を選択してください",
+            options=list(book_options.keys()),
+            format_func=lambda x: book_options[x],
+        )
+
+        target_book = get_book_by_id(selected_id)
+
+        if target_book:
+            # 日付のパース
+            try:
+                parsed_date = date.fromisoformat(target_book["published_date"])
+            except Exception:
+                parsed_date = date.today()
+
+            genre_index = GENRES.index(target_book["genre"]) if target_book["genre"] in GENRES else 0
+
+            with st.form(f"edit_form_{selected_id}"):
+                col_t, col_a = st.columns(2)
+                with col_t:
+                    edit_title = st.text_input("書籍タイトル *", value=target_book["title"])
+                with col_a:
+                    edit_author = st.text_input("著者名 *", value=target_book["author"])
+
+                col_g, col_d = st.columns(2)
+                with col_g:
+                    edit_genre = st.selectbox("ジャンル", options=GENRES, index=genre_index)
+                with col_d:
+                    edit_date = st.date_input("出版日 / 購入日", value=parsed_date)
+
+                current_rating = int(target_book["rating"]) if target_book["rating"] is not None else 3
+                edit_rating = st.slider(
+                    "評価",
+                    min_value=1,
+                    max_value=5,
+                    value=max(1, min(5, current_rating)),
+                    format="%d 星",
+                )
+                edit_memo = st.text_area("メモ・感想", value=target_book["memo"] or "")
+
+                update_submitted = st.form_submit_button("更新を保存する", type="primary", use_container_width=True)
+
+                if update_submitted:
+                    if not edit_title.strip():
+                        st.error("書籍タイトルを入力してください。")
+                    elif not edit_author.strip():
+                        st.error("著者名を入力してください。")
+                    else:
+                        update_book(
+                            book_id=selected_id,
+                            title=edit_title.strip(),
+                            author=edit_author.strip(),
+                            genre=edit_genre,
+                            published_date=str(edit_date),
+                            rating=edit_rating,
+                            memo=edit_memo.strip(),
+                        )
+                        st.success(f"ID: {selected_id}『{edit_title.strip()}』の情報を更新しました！")
+                        st.rerun()
