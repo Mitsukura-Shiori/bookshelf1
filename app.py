@@ -64,7 +64,7 @@ def fetch_books(search_query: str = "", filter_genre: str = "すべて"):
             query += " AND genre = ?"
             params.append(filter_genre)
 
-        query += " ORDER BY id ASC"
+        query += " ORDER BY id DESC"
         df = pd.read_sql_query(query, conn, params=params)
         return df
 
